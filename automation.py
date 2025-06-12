@@ -131,6 +131,10 @@ class AutomationController:
         self.task_stop_flag = True
         self.task_state = TaskState.IDLE
         self._update_status()
+
+    def is_task_running(self):
+        """检查任务是否正在运行"""
+        return self.task_state in [TaskState.RUNNING, TaskState.PAUSED]
         
     def _execute_auto_task(self):
         """执行自动化任务主循环"""

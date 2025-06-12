@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-字体设置模块 - 自动检测系统并配置合适的中文字体
+字体设置模块
 """
 
 import platform
@@ -9,249 +9,224 @@ import tkinter as tk
 import tkinter.font as tkFont
 import matplotlib
 import matplotlib.pyplot as plt
-from config import FONT_CONFIG, UI_THEME
+import matplotlib.font_manager as fm
+import os
+from config import FONT_CONFIG
 
 class FontManager:
     """字体管理器"""
-    
+
     def __init__(self):
+        """初始化字体管理器"""
         self.system = platform.system().lower()
-        self.available_fonts = None
-        self.selected_font = None
+        print(f"检测到操作系统: {platform.system()} {platform.release()}")
         
-    def detect_available_fonts(self):
-        """检测系统可用字体"""
+        # 先检测matplotlib可用字体
+        self.matplotlib_fonts = self._get_matplotlib_fonts()
+        
+        # 检测tkinter可用字体
+        self.tkinter_fonts = self._get_tkinter_fonts()
+        
+        # 选择最佳字体
+        self.selected_font = self._find_best_font()
+        self.matplotlib_font = self._find_matplotlib_font()
+        
+        # 设置字体
+        self.setup_matplotlib_fonts()
+        self.print_font_info()
+
+    def _get_matplotlib_fonts(self):
+        """获取matplotlib可用的字体列表"""
         try:
-            # 创建临时窗口来获取字体列表
+            font_list = [f.name for f in fm.fontManager.ttflist]
+            # 过滤出可能的中文字体
+            chinese_fonts = []
+            chinese_keywords = ['微软雅黑', 'Microsoft YaHei', 'SimHei', 'SimSun', 'NotoSans', 'PingFang', 'Hiragino', 'WenQuanYi']
+            
+            for font in font_list:
+                for keyword in chinese_keywords:
+                    if keyword.lower() in font.lower():
+                        chinese_fonts.append(font)
+                        break
+            
+            print(f"Matplotlib检测到 {len(font_list)} 个字体，其中 {len(chinese_fonts)} 个中文字体")
+            return chinese_fonts if chinese_fonts else font_list
+        except Exception as e:
+            print(f"警告: 检测matplotlib字体失败: {e}")
+            return []
+
+    def _get_tkinter_fonts(self):
+        """检测并返回tkinter可用字体集合"""
+        try:
             temp_root = tk.Tk()
             temp_root.withdraw()
-            
-            # 获取系统字体列表
-            font_families = tkFont.families()
-            self.available_fonts = set(font_families)
-            
+            fonts = set(tkFont.families())
             temp_root.destroy()
-            
-            print(f"检测到 {len(self.available_fonts)} 个系统字体")
-            return self.available_fonts
-            
+            print(f"Tkinter检测到 {len(fonts)} 个可用字体")
+            return fonts
         except Exception as e:
-            print(f"检测系统字体失败: {e}")
+            print(f"警告: 检测tkinter字体失败: {e}")
             return set()
-    
-    def find_best_font(self):
-        """根据系统找到最佳中文字体"""
-        if self.available_fonts is None:
-            self.detect_available_fonts()
+
+    def _find_best_font(self):
+        """为tkinter找到最合适的中文字体"""
+        # 获取当前系统的推荐字体列表
+        font_candidates = FONT_CONFIG.get(self.system, [])
         
-        # 获取当前系统的字体配置
-        system_fonts = FONT_CONFIG.get(self.system, FONT_CONFIG['windows'])
+        # 依次检查推荐字体是否可用
+        for font in font_candidates:
+            if font in self.tkinter_fonts:
+                print(f"Tkinter成功匹配到推荐字体: {font}")
+                return font
         
-        # 优先选择主字体
-        if system_fonts['primary'] in self.available_fonts:
-            self.selected_font = system_fonts['primary']
-            print(f"使用主字体: {self.selected_font}")
-            return self.selected_font
+        # 如果推荐字体都不可用，尝试一些通用的中文字体
+        fallback_fonts = ['Microsoft YaHei', 'SimHei', 'SimSun', 'Arial Unicode MS', 'DejaVu Sans']
+        for font in fallback_fonts:
+            if font in self.tkinter_fonts:
+                print(f"Tkinter使用备选字体: {font}")
+                return font
         
-        # 尝试备选字体
-        for font in system_fonts['secondary']:
-            if font in self.available_fonts:
-                self.selected_font = font
-                print(f"使用备选字体: {self.selected_font}")
-                return self.selected_font
+        # 最后的后备字体
+        fallback_font = FONT_CONFIG.get('fallback', 'Arial')
+        print(f"警告: 未找到合适的中文字体，Tkinter将使用后备字体: {fallback_font}")
+        return fallback_font
+
+    def _find_matplotlib_font(self):
+        """为matplotlib找到最合适的中文字体"""
+        # 尝试系统推荐的字体
+        font_candidates = FONT_CONFIG.get(self.system, [])
         
-        # 使用后备字体
-        self.selected_font = system_fonts['fallback']
-        print(f"使用后备字体: {self.selected_font}")
-        return self.selected_font
-    
+        for font in font_candidates:
+            # 检查matplotlib是否有这个字体
+            if any(font.lower() in mpl_font.lower() for mpl_font in self.matplotlib_fonts):
+                matching_font = next((mpl_font for mpl_font in self.matplotlib_fonts if font.lower() in mpl_font.lower()), None)
+                if matching_font:
+                    print(f"Matplotlib匹配到字体: {matching_font}")
+                    return matching_font
+        
+        # 尝试一些常见的中文字体名称
+        common_fonts = [
+            'Microsoft YaHei', 'Microsoft YaHei UI',
+            'SimHei', 'SimSun', 'KaiTi',
+            'PingFang SC', 'Hiragino Sans GB',
+            'Noto Sans CJK SC', 'WenQuanYi Micro Hei',
+            'DejaVu Sans'
+        ]
+        
+        for font in common_fonts:
+            if any(font.lower() in mpl_font.lower() for mpl_font in self.matplotlib_fonts):
+                matching_font = next((mpl_font for mpl_font in self.matplotlib_fonts if font.lower() in mpl_font.lower()), None)
+                if matching_font:
+                    print(f"Matplotlib使用通用字体: {matching_font}")
+                    return matching_font
+        
+        # 如果都找不到，使用matplotlib的默认字体并禁用中文
+        print("警告: Matplotlib未找到合适的中文字体，使用默认字体")
+        return 'DejaVu Sans'
+
     def setup_matplotlib_fonts(self):
-        """设置matplotlib中文字体"""
+        """设置matplotlib以支持中文字体和负号显示"""
         try:
-            # 设置matplotlib支持中文
-            if self.system == 'windows':
-                # Windows系统
-                chinese_fonts = ['Microsoft YaHei', 'SimHei', 'SimSun', 'KaiTi']
-            elif self.system == 'darwin':  # macOS
-                chinese_fonts = ['PingFang SC', 'Hiragino Sans GB', 'STHeiti', 'Arial Unicode MS']
-            else:  # Linux
-                chinese_fonts = ['Noto Sans CJK SC', 'WenQuanYi Micro Hei', 'Droid Sans Fallback']
-            
             # 设置字体
-            for font in chinese_fonts:
-                try:
-                    plt.rcParams['font.sans-serif'] = [font] + plt.rcParams['font.sans-serif']
-                    break
-                except:
-                    continue
-            
-            # 解决负号显示问题
+            plt.rcParams['font.sans-serif'] = [self.matplotlib_font, 'DejaVu Sans', 'Arial']
             plt.rcParams['axes.unicode_minus'] = False
             
-            print("matplotlib中文字体设置完成")
+            # 设置默认字体大小
+            plt.rcParams['font.size'] = 10
+            plt.rcParams['axes.titlesize'] = 12
+            plt.rcParams['axes.labelsize'] = 10
+            plt.rcParams['xtick.labelsize'] = 9
+            plt.rcParams['ytick.labelsize'] = 9
+            plt.rcParams['legend.fontsize'] = 9
+            
+            # 测试字体是否工作
+            fig, ax = plt.subplots(figsize=(1, 1))
+            ax.text(0.5, 0.5, '测试中文', fontsize=12, ha='center')
+            plt.close(fig)
+            
+            print("Matplotlib 字体设置完成")
             
         except Exception as e:
-            print(f"设置matplotlib字体失败: {e}")
-    
-    def get_font_config(self, size=None, weight='normal'):
-        """获取字体配置元组"""
-        if self.selected_font is None:
-            self.find_best_font()
-        
-        if size is None:
-            size = UI_THEME['font_size']
-        
+            print(f"警告: 设置matplotlib字体失败: {e}")
+            # 使用最安全的设置
+            try:
+                plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
+                plt.rcParams['axes.unicode_minus'] = False
+                print("已切换到安全的matplotlib字体设置")
+            except:
+                pass
+
+    def get_font_config(self, size=10, weight='normal'):
+        """获取tkinter字体配置元组"""
         return (self.selected_font, size, weight)
-    
-    def test_font_display(self):
-        """测试字体显示效果"""
-        try:
-            # 创建测试窗口
-            test_window = tk.Toplevel()
-            test_window.title("字体测试")
-            test_window.geometry("400x300")
-            
-            font_config = self.get_font_config(12)
-            
-            # 测试文本
-            test_texts = [
-                "🤖 5DOF机械臂控制系统",
-                "串口连接状态：已连接",
-                "当前位置：X=150.0, Y=0.0, Z=200.0",
-                "任务状态：执行中",
-                "抓取点、放置点、夹爪控制",
-                "自动化任务、位置控制、手动控制"
-            ]
-            
-            tk.Label(test_window, text=f"当前字体: {self.selected_font}", 
-                    font=font_config, fg='blue').pack(pady=10)
-            
-            for text in test_texts:
-                tk.Label(test_window, text=text, font=font_config).pack(pady=2)
-            
-            # 关闭按钮
-            tk.Button(test_window, text="关闭", font=font_config,
-                     command=test_window.destroy).pack(pady=10)
-            
-        except Exception as e:
-            print(f"字体测试失败: {e}")
-    
+
+    def get_matplotlib_font_config(self):
+        """获取matplotlib字体配置"""
+        return {
+            'fontname': self.matplotlib_font,
+            'fontsize': 10
+        }
+
     def print_font_info(self):
-        """打印字体信息"""
-        print("\n" + "="*50)
+        """打印最终的字体配置信息"""
+        print("\n" + "="*60)
         print("字体配置信息")
-        print("="*50)
+        print("="*60)
         print(f"操作系统: {platform.system()} {platform.release()}")
-        print(f"当前选择字体: {self.selected_font}")
-        
-        if self.available_fonts:
-            # 显示可用的中文字体
-            chinese_fonts = []
-            chinese_keywords = ['Microsoft', 'YaHei', 'SimHei', 'SimSun', 'KaiTi', 
-                              'PingFang', 'Hiragino', 'STHeiti', 'Noto', 'WenQuanYi']
-            
-            for font in self.available_fonts:
-                if any(keyword in font for keyword in chinese_keywords):
-                    chinese_fonts.append(font)
-            
-            print(f"检测到的中文字体 ({len(chinese_fonts)} 个):")
-            for font in sorted(chinese_fonts)[:10]:  # 显示前10个
-                print(f"  - {font}")
-            
-            if len(chinese_fonts) > 10:
-                print(f"  ... 还有 {len(chinese_fonts) - 10} 个字体")
-        
-        print("="*50)
+        print(f"Tkinter字体: {self.selected_font}")
+        print(f"Matplotlib字体: {self.matplotlib_font}")
+        print(f"可用中文字体数量: {len(self.matplotlib_fonts)}")
+        if self.matplotlib_fonts:
+            print(f"部分可用字体: {', '.join(self.matplotlib_fonts[:3])}...")
+        print("="*60)
 
 def setup_fonts():
-    """设置字体的主函数"""
-    print("正在配置字体...")
-    
-    font_manager = FontManager()
-    
-    # 检测并设置最佳字体
-    font_manager.find_best_font()
-    
-    # 设置matplotlib字体
-    font_manager.setup_matplotlib_fonts()
-    
-    # 更新UI主题字体
-    UI_THEME['font_family'] = font_manager.selected_font
-    
-    # 打印字体信息
-    font_manager.print_font_info()
-    
-    return font_manager
-
-def manual_font_selection():
-    """手动选择字体"""
-    print("\n可选字体配置:")
-    print("1. Microsoft YaHei UI (推荐-Windows)")
-    print("2. Microsoft YaHei")
-    print("3. SimHei (黑体)")
-    print("4. PingFang SC (推荐-macOS)")
-    print("5. Noto Sans CJK SC (推荐-Linux)")
-    print("6. 自动检测")
-    print("7. 测试当前字体")
-    
-    try:
-        choice = input("\n请选择字体 (1-7): ").strip()
-        
-        font_options = {
-            '1': 'Microsoft YaHei UI',
-            '2': 'Microsoft YaHei', 
-            '3': 'SimHei',
-            '4': 'PingFang SC',
-            '5': 'Noto Sans CJK SC'
-        }
-        
-        if choice in font_options:
-            selected_font = font_options[choice]
-            print(f"已选择字体: {selected_font}")
-            
-            # 更新配置
-            UI_THEME['font_family'] = selected_font
-            
-            # 测试字体
-            font_manager = FontManager()
-            font_manager.selected_font = selected_font
-            font_manager.setup_matplotlib_fonts()
-            
-            return font_manager
-            
-        elif choice == '6':
-            return setup_fonts()
-            
-        elif choice == '7':
-            font_manager = FontManager()
-            font_manager.test_font_display()
-            return font_manager
-            
-        else:
-            print("无效选择，使用自动检测")
-            return setup_fonts()
-            
-    except KeyboardInterrupt:
-        print("\n操作取消，使用默认字体配置")
-        return setup_fonts()
+    """
+    执行字体设置的主函数
+    返回一个配置好的FontManager实例
+    """
+    print("正在初始化字体配置...")
+    return FontManager()
 
 if __name__ == "__main__":
-    # 直接运行此文件来测试字体
-    font_manager = setup_fonts()
+    # 直接运行此文件以测试字体配置
+    manager = setup_fonts()
     
-    # 提供手动选择选项
-    try:
-        user_input = input("\n是否需要手动选择字体? (y/n): ").strip().lower()
-        if user_input == 'y':
-            font_manager = manual_font_selection()
-            
-        # 显示字体测试窗口
-        test_input = input("是否显示字体测试窗口? (y/n): ").strip().lower()
-        if test_input == 'y':
-            root = tk.Tk()
-            root.withdraw()
-            font_manager.test_font_display()
-            root.mainloop()
-            
-    except KeyboardInterrupt:
-        print("\n程序退出")
+    # 创建一个测试窗口来展示字体效果
+    root = tk.Tk()
+    root.title("字体测试")
+    root.geometry("500x400")
+    
+    tk.Label(root, text=f"Tkinter字体: {manager.selected_font}", 
+             font=manager.get_font_config(14, 'bold'), fg='blue').pack(pady=10)
+    
+    tk.Label(root, text=f"Matplotlib字体: {manager.matplotlib_font}", 
+             font=manager.get_font_config(12), fg='green').pack(pady=5)
+    
+    test_texts = [
+        "🤖 5DOF机械臂控制系统 v2.1",
+        "你好，世界！ Hello, World!",
+        "串口: COM3, 状态: 已连接",
+        "X:150.0, Y:0.0, Z:200.0",
+        "目标位置控制、手动微调、自动化任务",
+        "1234567890 ABCDEFGHIJK"
+    ]
+    
+    for text in test_texts:
+        tk.Label(root, text=text, font=manager.get_font_config(11)).pack(pady=3)
+    
+    # 测试matplotlib
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    
+    fig, ax = plt.subplots(figsize=(6, 3))
+    ax.text(0.5, 0.7, '这是matplotlib中文测试', ha='center', fontsize=14)
+    ax.text(0.5, 0.3, f'使用字体: {manager.matplotlib_font}', ha='center', fontsize=10)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_title('Matplotlib中文字体测试')
+    
+    canvas = FigureCanvasTkAgg(fig, root)
+    canvas.get_tk_widget().pack(pady=10)
+    
+    root.mainloop()
