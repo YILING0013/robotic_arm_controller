@@ -439,7 +439,7 @@ class AutomationController:
     def _return_to_home_position(self):
         """返回复位点"""
         try:
-            command = self.communicator.create_servo_command(DEFAULT_ANGLES, self.auto_speed)
+            command = self.communicator.create_servo_command(DEFAULT_ANGLES.copy(), self.auto_speed)
             
             success, message = self.communicator.send_command(command)
             if success:

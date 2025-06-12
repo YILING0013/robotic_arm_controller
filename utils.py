@@ -20,7 +20,7 @@ class SettingsManager:
         """保存设置到文件"""
         settings = {
             'port': kwargs.get('port', ''),
-            'current_angles': kwargs.get('current_angles', DEFAULT_ANGLES),
+            'current_angles': kwargs.get('current_angles', DEFAULT_ANGLES.copy()),
             'target_position': kwargs.get('target_position', DEFAULT_TARGET_POSITION),
             'speed': kwargs.get('speed', 2),
             'show_target': kwargs.get('show_target', True),
@@ -42,7 +42,7 @@ class SettingsManager:
         """从文件加载设置"""
         default_settings = {
             'port': '',
-            'current_angles': DEFAULT_ANGLES,
+            'current_angles': DEFAULT_ANGLES.copy(),
             'target_position': DEFAULT_TARGET_POSITION,
             'speed': 2,
             'show_target': True,

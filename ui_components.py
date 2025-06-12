@@ -37,7 +37,7 @@ class ModernUI:
         self.speed_var = ttk.IntVar(value=2)
         
         # 手动控制
-        self.angle_vars = [ttk.DoubleVar(value=angle) for angle in DEFAULT_ANGLES]
+        self.angle_vars = [ttk.DoubleVar(value=angle) for angle in DEFAULT_ANGLES.copy()]
         
         # 可视化
         self.show_target_var = ttk.BooleanVar(value=True)
