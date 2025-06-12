@@ -7,7 +7,7 @@
 import numpy as np
 import ikpy.chain
 import ikpy.link
-from config import LINK_LENGTHS, SERVO_LIMITS
+from config import LINK_LENGTHS, SERVO_LIMITS, DEFAULT_ANGLES
 
 class KinematicsCalculator:
     """运动学计算器"""
@@ -137,7 +137,7 @@ class KinematicsCalculator:
         position = np.array(transform_matrix[:3, 3]).flatten()
         return position
         
-    def inverse_kinematics(self, target_position, current_angles):
+    def inverse_kinematics(self, target_position, current_angles=DEFAULT_ANGLES.copy()):
         """逆运动学:多次迭代，直到结果收敛或达到最大次数，返回误差最小的舵机角度"""
         initial_position = self.servo_angle_to_chain_angle(current_angles)
             

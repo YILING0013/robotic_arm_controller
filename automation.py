@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-自动化任务执行模块 - 处理机械臂的自动化抓取放置任务
+自动化任务执行模块 - 处理机械臂的自动化抓取放置任务 (已优化路径规划)
 """
 
 import threading
 import time
 import json
+import numpy as np  # 导入NumPy库
 from config import TaskState, AutoTaskStep, AUTO_TASK_DEFAULTS, GRIPPER_OPEN, GRIPPER_CLOSE, DEFAULT_ANGLES
+from utils import log_manager
 
 class AutomationController:
     """自动化任务控制器"""
@@ -235,25 +237,182 @@ class AutomationController:
         return self._move_to_position_auto(target_pos)
         
     def _move_to_position_auto(self, target_pos):
-        """自动模式下移动到指定位置"""
+        """
+        自动模式下移动到指定位置。
+        此方法包含智能路径规划，以决定是直接移动、沿球面轨迹移动还是沿侧边圆弧轨迹移动。
+        """
         try:
-            servo_angles, error = self.kinematics.inverse_kinematics(target_pos, self.current_angles)
-            command = self.communicator.create_position_command(servo_angles, self.auto_speed, exclude_gripper=True)
+            start_pos = self.kinematics.forward_kinematics(self.current_angles)
+            end_pos = np.array(target_pos)
             
-            success, message = self.communicator.send_command(command)
-            if success:
-                # 更新当前角度
-                for i in range(5):
-                    self.current_angles[i] = servo_angles[i]
-                time.sleep(self.move_delay)
-                return True
-            else:
-                print(f"移动失败: {message}")
-                return False
-                
+            # 1. 如果距离小于阈值，则直接移动
+            if np.linalg.norm(end_pos - start_pos) < 0.01:
+                return self._move_to_target_directly(end_pos)
+
+            # 2. 分析XY平面上的角度，决定是否需要侧方绕行
+            start_xy = start_pos[:2]
+            end_xy = end_pos[:2]
+            norm_start_xy = np.linalg.norm(start_xy)
+            norm_end_xy = np.linalg.norm(end_xy)
+            
+            # 仅当两点都在原点之外时才计算夹角
+            if norm_start_xy > 1e-6 and norm_end_xy > 1e-6:
+                u_start = start_xy / norm_start_xy
+                u_end = end_xy / norm_end_xy
+                dot_product = np.dot(u_start, u_end)
+                angle_deg = np.degrees(np.arccos(np.clip(dot_product, -1.0, 1.0)))
+
+                # 如果角度大于150度，则采用侧方绕行策略
+                if angle_deg > 120:
+                    log_manager.info(f"检测到大角度转向 ({angle_deg:.1f}°)，启用侧方路径规划。")
+                    return self._move_along_horizontal_arc_path(start_pos, end_pos)
+
+            # 3. 对于其他情况，使用球面路径规划
+            return self._move_along_spherical_path(start_pos, end_pos)
+
         except Exception as e:
-            print(f"移动失败: {e}")
+            log_manager.error(f"移动到位置失败 (路径规划): {e}")
             return False
+
+    def _execute_path(self, path, total_duration):
+        """
+        通用路径执行函数。
+        :param path: 一系列要经过的坐标点 (list of np.array)。
+        :param total_duration: 完成整个路径的总时间。
+        """
+        num_segments = len(path) - 1
+        if num_segments <= 0:
+            return True
+        
+        segment_duration = total_duration / num_segments
+
+        for i in range(num_segments):
+            # 检查任务是否被暂停或停止
+            if self.task_stop_flag: return False
+            while self.task_pause_flag and not self.task_stop_flag: time.sleep(0.1)
+            if self.task_stop_flag: return False
+
+            waypoint = path[i+1]
+            # print(f"  移动到路径点 {i+1}/{num_segments}: {np.round(waypoint*1000, 2)} mm")
+
+            servo_angles, error = self.kinematics.inverse_kinematics(waypoint, self.current_angles)
+            if servo_angles is None:
+                log_manager.warning(f"  [!] 路径规划警告：无法为中间点 {waypoint} 找到解。跳过此点。")
+                continue
+
+            command = self.communicator.create_position_command(servo_angles, self.auto_speed, exclude_gripper=True)
+            success, message = self.communicator.send_command(command)
+            
+            if success:
+                for j in range(5):
+                    self.current_angles[j] = servo_angles[j]
+                time.sleep(segment_duration)
+            else:
+                log_manager.error(f"  [!] 移动到中间点失败: {message}。终止轨迹移动。")
+                return False
+        return True
+
+    def _move_to_target_directly(self, target_pos):
+        """直接移动到目标点，不进行路径插值"""
+        path = [target_pos]
+        return self._execute_path(path, self.move_delay)
+
+    def _move_along_horizontal_arc_path(self, start_pos, end_pos):
+        """
+        为避免穿越中心，生成一个在安全高度的侧边水平圆弧路径。
+        路径组成为: 起点 -> 圆弧入口 -> [圆弧路径] -> 圆弧出口 -> 终点
+        """
+        log_manager.info("生成侧方水平圆弧路径...")
+        # 1. 确定圆弧参数
+        safe_z = self.safe_height / 1000
+        start_xy = start_pos[:2]
+        end_xy = end_pos[:2]
+        dist_start_xy = np.linalg.norm(start_xy)
+        dist_end_xy = np.linalg.norm(end_xy)
+        
+        # 使用较小半径确保能达到
+        arc_radius = min(dist_start_xy, dist_end_xy)
+        if arc_radius < 0.01: # 半径太小没有意义
+            log_manager.info("绕行半径过小，切换为球面路径。")
+            return self._move_along_spherical_path(start_pos, end_pos)
+
+        # 2. 定义路径关键点
+        # 圆弧入口点
+        u_start_xy = start_xy / dist_start_xy
+        arc_entry_pos = np.array([u_start_xy[0] * arc_radius, u_start_xy[1] * arc_radius, safe_z])
+        # 圆弧出口点
+        u_end_xy = end_xy / dist_end_xy
+        arc_exit_pos = np.array([u_end_xy[0] * arc_radius, u_end_xy[1] * arc_radius, safe_z])
+        
+        # 3. 生成圆弧上的点
+        start_angle = np.arctan2(u_start_xy[1], u_start_xy[0])
+        end_angle = np.arctan2(u_end_xy[1], u_end_xy[0])
+        
+        # 选择最短的绕行方向
+        angle_diff = end_angle - start_angle
+        if angle_diff > np.pi: angle_diff -= 2 * np.pi
+        if angle_diff < -np.pi: angle_diff += 2 * np.pi
+        
+        num_arc_steps = 5
+        arc_points = []
+        for i in range(1, num_arc_steps + 1):
+            t = i / num_arc_steps
+            current_angle = start_angle + t * angle_diff
+            x = arc_radius * np.cos(current_angle)
+            y = arc_radius * np.sin(current_angle)
+            arc_points.append(np.array([x, y, safe_z]))
+        
+        # 4. 组合完整路径
+        # 为了让每段运动更平滑，也用Slerp连接到圆弧
+        path1 = self._get_slerp_path(start_pos, arc_entry_pos, 3)
+        path2 = arc_points
+        path3 = self._get_slerp_path(arc_exit_pos, end_pos, 3)
+        
+        full_path = path1 + path2 + path3
+        
+        log_manager.info(f"侧方路径生成完毕，共 {len(full_path)} 个路径点。")
+        return self._execute_path(full_path, self.move_delay)
+
+    def _get_slerp_path(self, p1, p2, num_steps):
+        """辅助函数: 根据Slerp生成一段路径点列表 (不包含起点)"""
+        path = []
+        r1 = np.linalg.norm(p1)
+        r2 = np.linalg.norm(p2)
+
+        if r1 < 1e-6 or r2 < 1e-6: # 线性插值
+            for i in range(1, num_steps + 1):
+                t = i / num_steps
+                path.append(p1 * (1 - t) + p2 * t)
+            return path
+            
+        u1 = p1 / r1
+        u2 = p2 / r2
+        dot_product = np.dot(u1, u2)
+        omega = np.arccos(np.clip(dot_product, -1.0, 1.0))
+
+        if omega < np.radians(1.0): # 线性插值
+            for i in range(1, num_steps + 1):
+                t = i / num_steps
+                path.append(p1 * (1 - t) + p2 * t)
+            return path
+
+        sin_omega = np.sin(omega)
+        for i in range(1, num_steps + 1):
+            t = i / num_steps
+            slerp_factor1 = np.sin((1 - t) * omega) / sin_omega
+            slerp_factor2 = np.sin(t * omega) / sin_omega
+            u_t = slerp_factor1 * u1 + slerp_factor2 * u2
+            r_t = (1 - t) * r1 + t * r2
+            path.append(r_t * u_t)
+        return path
+        
+    def _move_along_spherical_path(self, start_pos, end_pos):
+        """
+        使用球面线性插值(Slerp)在起点和终点之间生成平滑的球形轨迹。
+        """
+        log_manager.info("生成球面路径...")
+        path_points = self._get_slerp_path(start_pos, end_pos, num_steps=6)
+        return self._execute_path(path_points, self.move_delay)
             
     def _control_gripper_auto(self, angle):
         """自动模式下控制夹爪"""
@@ -266,11 +425,11 @@ class AutomationController:
                 time.sleep(self.grip_delay)
                 return True
             else:
-                print(f"夹爪控制失败: {message}")
+                log_manager.warning(f"夹爪控制失败: {message}")
                 return False
                 
         except Exception as e:
-            print(f"夹爪控制失败: {e}")
+            log_manager.error(f"夹爪控制失败: {e}")
             return False
             
     def _return_to_home_position(self):
@@ -284,11 +443,11 @@ class AutomationController:
                 time.sleep(self.move_delay * 1.5)
                 return True
             else:
-                print(f"返回复位点失败: {message}")
+                log_manager.warning(f"返回复位点失败: {message}")
                 return False
                 
         except Exception as e:
-            print(f"返回复位点失败: {e}")
+            log_manager.error(f"返回复位点失败: {e}")
             return False
             
     def _update_status(self):

@@ -237,7 +237,12 @@ class RobotArmControllerApp:
                 self.ui.port_var.set(settings.get('port', ''))
                 
                 # 恢复当前角度
-                self.current_angles = settings.get('current_angles', DEFAULT_ANGLES)
+                saved_angles = settings.get('current_angles')
+                if saved_angles is not None:
+                    self.current_angles = list(saved_angles)  # 创建新列表
+                else:
+                    self.current_angles = DEFAULT_ANGLES.copy()  # 使用副本
+                
                 self.ui.update_angles_display(self.current_angles)
                 
                 # 恢复目标位置
@@ -388,7 +393,7 @@ class RobotArmControllerApp:
                 return
             
             # 计算逆运动学
-            servo_angles, error = self.kinematics.inverse_kinematics(target_pos, self.current_angles)
+            servo_angles, error = self.kinematics.inverse_kinematics(target_pos, DEFAULT_ANGLES.copy())
             
             # 更新界面显示
             for i in range(5):  # 不包括夹爪
@@ -480,6 +485,7 @@ class RobotArmControllerApp:
                 if self.communicator.is_connected:
                     speed = self.ui.speed_var.get()
                     # ✅ 直接使用 DEFAULT_ANGLES 而不是 self.current_angles
+                    print(DEFAULT_ANGLES)
                     command = self.communicator.create_servo_command(DEFAULT_ANGLES, speed)
                     success, message = self.communicator.send_command(command)
                     

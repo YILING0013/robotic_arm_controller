@@ -1,5 +1,5 @@
 {
-  "port": "COM6",
+  "port": "COM7",
   "current_angles": [
     190,
     130,
@@ -9,14 +9,26 @@
     130
   ],
   "target_position": [
-    -150.0,
+    150.0,
     0.0,
     200.0
   ],
   "speed": 2,
   "show_target": true,
-  "pickup_points": [],
-  "place_points": [],
+  "pickup_points": [
+    [
+      150.0,
+      0.0,
+      200.0
+    ]
+  ],
+  "place_points": [
+    [
+      -105.0,
+      -112.0,
+      200.0
+    ]
+  ],
   "auto_parameters": {
     "safe_height": 250.0,
     "height_offset": 30.0,
@@ -24,6 +36,6 @@
     "move_delay": 3.0,
     "return_home": true
   },
-  "window_geometry": "1707x996+26+26",
-  "last_saved": 1749659287.010981
+  "window_geometry": "1707x996+261+98",
+  "last_saved": 1749694673.15947
 }
