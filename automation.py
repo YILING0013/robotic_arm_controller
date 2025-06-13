@@ -54,22 +54,22 @@ class AutomationController:
         """添加放置点"""
         self.place_points.append(tuple(point))
         
-    def remove_pickup_point(self, index):
+    def delete_pickup_point(self, index):
         """删除抓取点"""
         if 0 <= index < len(self.pickup_points):
             del self.pickup_points[index]
             
-    def remove_place_point(self, index):
+    def delete_place_point(self, index):
         """删除放置点"""
         if 0 <= index < len(self.place_points):
             del self.place_points[index]
             
-    def update_pickup_point(self, index, point):
+    def edit_pickup_point(self, index, point):
         """更新抓取点"""
         if 0 <= index < len(self.pickup_points):
             self.pickup_points[index] = tuple(point)
             
-    def update_place_point(self, index, point):
+    def edit_place_point(self, index, point):
         """更新放置点"""
         if 0 <= index < len(self.place_points):
             self.place_points[index] = tuple(point)
@@ -250,7 +250,7 @@ class AutomationController:
             end_pos = np.array(target_pos)
             
             # 1. 如果距离小于阈值，则直接移动
-            if np.linalg.norm(end_pos - start_pos) < 0.01:
+            if np.linalg.norm(end_pos - start_pos) < 0.05:
                 return self._move_to_target_directly(end_pos)
 
             # 2. 分析XY平面上的角度，决定是否需要侧方绕行
