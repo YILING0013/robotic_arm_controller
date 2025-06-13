@@ -204,7 +204,7 @@ class RobotArmControllerApp:
                 return
             
             target_pos_m = [p / 1000.0 for p in target_pos_mm]
-            servo_angles, error = self.kinematics.inverse_kinematics(target_pos_m, self.current_angles.copy())
+            servo_angles, error = self.kinematics.inverse_kinematics(target_pos_m, DEFAULT_ANGLES.copy())
             
             if error > 0.05:
                 MessageHelper.show_warning("计算警告", f"无法精确到达该位置，误差较大 ({error*1000:.1f} mm)。")
@@ -470,7 +470,7 @@ class RobotArmControllerApp:
         self.visualization.update_display()
         
     def on_application_closing(self):
-        if self.automation.is_running():
+        if self.automation.is_task_running():
             if not MessageHelper.ask_yes_no("任务正在执行", "有任务正在运行，确定要退出吗?"): return
             self.automation.stop_task()
         
