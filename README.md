@@ -101,4 +101,4 @@ python startup.py
 
 ## 📄 许可
 
-本项目采用 [GNU License](LICENSE) 开源许可。
+本项目采用 [GPL-3.0 license](LICENSE) 开源许可。
